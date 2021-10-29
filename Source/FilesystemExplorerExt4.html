@@ -1,0 +1,56 @@
+<html>
+<body>
+
+	<h3>Ext4 Filesystem Explorer</h3>
+
+	<p>
+		Upload a valid disk image in the Ext4 format
+		to explore its file and directory hierarchy.
+		A sample disk image is provided at /Samples/ext4.img.
+	</p>
+
+	<label>Disk Image File:</label>
+	<input type="file" onchange="handleEventInputFileChanged(this);"></input>
+
+	<div id="divMain"></div>
+
+<script src="Base64Encoder.js"></script>
+<script src="BitStream.js"></script>
+<script src="ByteHelper.js"></script>
+<script src="ByteStream.js"></script>
+<script src="FileHelper.js"></script>
+<script src="FilesystemExt4.js"></script>
+<script src="Globals.js"></script>
+
+<script>
+
+// UI event handlers.
+
+function handleEventInputFileChanged(inputFile)
+{
+	var fileToLoad = inputFile.files[0];
+	FileHelper.loadFileAsBinaryString
+	(
+		fileToLoad,
+		handleEventInputFileChanged_2
+	);
+}
+
+function handleEventInputFileChanged_2(fileAsBinaryString)
+{
+	var fileAsBytes = ByteHelper.binaryStringToBytes
+	(
+		fileAsBinaryString
+	);
+
+	var filesystemExt4 = FilesystemExt4.fromBytes
+	(
+		fileAsBytes
+	);
+
+	Globals.Instance.initialize(filesystemExt4);
+}
+
+</script>
+</body>
+</html>
