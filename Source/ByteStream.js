@@ -55,8 +55,12 @@ class ByteStream
 
 		for (var i = 0; i < bytes.length; i++)
 		{
-			var byte = bytes[i];
-			returnValue += String.fromCharCode(byte);	
+			var byteRead = bytes[i];
+			if (byteRead == 0)
+			{
+				break;
+			}
+			returnValue += String.fromCharCode(byteRead);
 		}
 
 		return returnValue;

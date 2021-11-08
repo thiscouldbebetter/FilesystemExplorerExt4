@@ -4,10 +4,12 @@ class FilesystemExt4
 	constructor
 	(
 		superblock,
+		blockGroupDescriptors,
 		directoryRoot
 	)
 	{
 		this.superblock = superblock;
+		this.blockGroupDescriptors = blockGroupDescriptors;
 		this.directoryRoot = directoryRoot;
 
 		this.directoryCurrent = this.directoryRoot;
@@ -32,11 +34,26 @@ class FilesystemExt4
 		var superblock =
 			FilesystemExt4Superblock.readFromByteStream(bs);
 
+		var blockGroupDescriptors = [];
+
+		var blockCount = superblock.blockCount;
+		var blocksPerBlockGroup = superblock.blocksPerBlockGroup;
+		var blockGroupCount = blockCount / blocksPerBlockGroup;
+
+		for (var i = 0; i < blockGroupCount; i++)
+		{
+			var blockGroupDescriptor =
+				FilesystemExt4BlockGroupDescriptor.readFromByteStream(bs);
+
+			blockGroupDescriptors.push(blockGroupDescriptor);
+		}
+
 		var directoryRoot = null; // todo
 
 		var returnValue = new FilesystemExt4
 		(
 			superblock,
+			blockGroupDescriptors,
 			directoryRoot
 		);
 
@@ -73,7 +90,213 @@ class FilesystemExt4
 
 	toStringJson()
 	{
-		return JSON.stringify(this, null, 4).split("\n").join("<br />");
+		var filesystemAsJson = JSON.stringify(this, null, 4);
+		filesystemAsJson =
+			filesystemAsJson.split("\n").join("<br />");
+		filesystemAsJson =
+			filesystemAsJson.split("    ").join("&nbsp;&nbsp;&nbsp;&nbsp;");
+		return filesystemAsJson;
+	}
+}
+
+class FilesystemExt4BlockGroupDescriptor
+{
+	constructor
+	(
+		blockAddressOfBlockUsageBitmap,
+		blockAddressOfInodeUsageBitmap,
+		startingBlockAddressOfInodeTable,
+		numberOfUnallocatedBlocksInGroup,
+		numberOfUnallocatedInodesInGroup,
+		numberOfDirectoriesInGroup,
+		unusedBytes
+	)
+	{
+		this.blockAddressOfBlockUsageBitmap = blockAddressOfBlockUsageBitmap;
+		this.blockAddressOfInodeUsageBitmap = blockAddressOfInodeUsageBitmap;
+		this.startingBlockAddressOfInodeTable = startingBlockAddressOfInodeTable;
+		this.numberOfUnallocatedBlocksInGroup = numberOfUnallocatedBlocksInGroup;
+		this.numberOfUnallocatedInodesInGroup = numberOfUnallocatedInodesInGroup;
+		this.numberOfDirectoriesInGroup = numberOfDirectoriesInGroup;
+		this.unusedBytes = unusedBytes;
+	}
+
+	static readFromByteStream(byteStream)
+	{
+		var bs = byteStream;
+
+		var descriptorOffset = bs.byteIndexCurrent;
+
+		var blockAddressOfBlockUsageBitmap = bs.readIntegerLE(4);
+		var blockAddressOfInodeUsageBitmap = bs.readIntegerLE(4);
+		var startingBlockAddressOfInodeTable = bs.readIntegerLE(4);
+		var numberOfUnallocatedBlocksInGroup = bs.readIntegerLE(2);
+		var numberOfUnallocatedInodesInGroup = bs.readIntegerLE(2);
+		var numberOfDirectoriesInGroup = bs.readIntegerLE(2);
+
+		var bytesReadForDescriptor =
+			bs.byteIndexCurrent - descriptorOffset;
+
+		var descriptorSizeInBytes = 32;
+		var numberOfUnusedBytes =
+			descriptorSizeInBytes - bytesReadForDescriptor;
+		var unusedBytes = bs.readBytes();
+
+		var blockGroupDescriptor = new FilesystemExt4BlockGroupDescriptor
+		(
+			blockAddressOfBlockUsageBitmap,
+			blockAddressOfInodeUsageBitmap,
+			startingBlockAddressOfInodeTable,
+			numberOfUnallocatedBlocksInGroup,
+			numberOfUnallocatedInodesInGroup,
+			numberOfDirectoriesInGroup,
+			unusedBytes
+		);
+
+		return blockGroupDescriptor;
+	}
+}
+
+class FilesystemExt4Inode
+{
+	constructor
+	(
+		typeCode,
+		permissionsAsBitString,
+		userId,
+		sizeInBytes,
+		lastAccessedAtTime,
+		createdAtTime,
+		lastModifiedAtTime,
+		deletedAtTime,
+		groupId,
+		directoryEntryCount,
+		diskSectorsUsedForPayloadCount,
+		flags,
+		operatingSystemSpecificValue1,
+		directBlockPointers,
+		singlyIndirectBlockPointer,
+		doublyIndirectBlockPointer,
+		triplyIndirectBlockPointer,
+		generationNumber,
+		fileAccessControlList,
+		directoryAccessControlList,
+		blockAddressOfFragment,
+		fragmentNumber,
+		fragmentSize,
+		reserved1,
+		high16BitsOfUserId,
+		high16BitsOfGroupId,
+		reserved2
+	)
+	{
+		this.typeCode = typeCode;
+		this.permissionsAsBitString = permissionsAsBitString;
+		this.userId = userId;
+		this.sizeInBytes = sizeInBytes;
+		this.lastAccessedAtTime = lastAccessedAtTime;
+		this.createdAtTime = createdAtTime;
+		this.lastModifiedAtTime = lastModifiedAtTime;
+		this.deletedAtTime = deletedAtTime;
+		this.groupId = groupId;
+		this.directoryEntryCount = directoryEntryCount; // "hard links"
+		this.diskSectorsUsedForPayloadCount = diskSectorsUsedForPayloadCount;
+		this.flags = flags;
+		this.operatingSystemSpecificValue1 = operatingSystemSpecificValue1;
+		this.directBlockPointers = directBlockPointers;
+		this.singlyIndirectBlockPointer = singlyIndirectBlockPointer; // Points to block that is list of block pointers.
+		this.doublyIndirectBlockPointer = doublyIndirectBlockPointer; // Points to block that is list of block pointers to Singly Indirect Blocks.
+		this.triplyIndirectBlockPointer = triplyIndirectBlockPointer; // Etc.
+		this.generationNumber = generationNumber; // For NFS.
+		this.fileAccessControlList = fileAccessControlList;
+		this.directoryAccessControlList = directoryAccessControlList;
+		this.blockAddressOfFragment = blockAddressOfFragment;
+		this.operatingSystemSpecificValue2 = operatingSystemSpecificValue2;
+	}
+
+	static readFromByteStream(byteStream)
+	{
+		var bs = byteStream;
+
+		var typeAndPermissionsAsInteger = bs.readIntegerLE(2);
+		var typeCode = typeAndPermissionsAsInteger >> 12;
+		// 1 - FIFO
+		// 2 - character device
+		// 4 - directory
+		// 6 - block device
+		// 8 - regular file
+		// 10 - symbolic link
+		// 12 - Unix socket
+
+		var permissionsAsInteger = typeAndPermissionsAsInteger & 0xFFF;
+		var permissionsAsBitString = permissionsAsInteger.toString(2);
+		// Permissions bits are:
+		// execute, read, write for each of other, group, user
+		// Then "sticky bit", set group ID, set user ID.
+
+		var userId = bs.readIntegerLE(2);
+		var sizeInBytesLower32Bits = bs.readIntegerLE(4);
+
+		var lastAccessedAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
+		var lastAccessedAtTime =
+			new Date(lastAccessedAtSecondsSinceUnixEpoch * 1000);
+
+		var createdAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
+		var createdAtTime =
+			new Date(createdAtSecondsSinceUnixEpoch * 1000);
+
+		var lastModifiedAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
+		var lastModifiedAtTime =
+			new Date(lastModifiedAtSecondsSinceUnixEpoch * 1000);
+
+		var deletedAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
+		var deletedAtTime =
+			new Date(deletedAtSecondsSinceUnixEpoch * 1000);
+
+		var groupId = bs.readIntegerLE(2);
+		var directoryEntryCount = bs.readIntegerLE(2);
+		var diskSectorsUsedForPayloadCount = bs.readIntegerLE(4);
+
+		var flags = bs.readIntegerLE(4);
+		// 1 - secure deletion (not used)
+		// 2 - keep a copy of data when deleted (not used)
+		// 4 - file compression (not used)
+		// 8 - synchronous updates: New data written to disk immediately.
+		// 16 - immutable file
+		// 32 - append only
+		// 64 - file not included in "dump" command
+		// 128 - last accessed time should not be updated
+		// (some reserved bits)
+		// 0x10000 - hash indexed directory
+		// 0x20000 - AFS directory
+		// 0x40000 - journal file data
+
+		var operatingSystemSpecificValue1 = bs.readIntegerLE(4);
+		// Only used in HURD.
+
+		var directBlockPointers = [];
+		var directBlockPointerCount = 12;
+		for (var i = 0; i < directBlockPointerCount; i++)
+		{
+			var directBlockPointer = bs.readIntegerLE(2);
+			directBlockPointers.push(directBlockPointer);
+		}
+
+		var singlyIndirectBlockPointer = bs.readIntegerLE(4);
+		var doublyIndirectBlockPointer = bs.readIntegerLE(4);
+		var triplyIndirectBlockPointer = bs.readIntegerLE(4);
+		var generationNumber = bs.readIntegerLE(4);
+		var fileAccessControlList = bs.readIntegerLE(4);
+		var directoryAccessControlList = bs.readIntegerLE(4);
+		var blockAddressOfFragment = bs.readIntegerLE(4);
+
+		// Assuming Linux for these OS-specific values.
+		var fragmentNumber = bs.readByte();
+		var fragmentSize = bs.readByte();
+		var reserved1 = bs.readByte();
+		var high16BitsOfUserId = bs.readIntegerLE(2);
+		var high16BitsOfGroupId = bs.readIntegerLE(2);
+		var reserved2 = bs.readByte();
 	}
 }
 
@@ -87,20 +310,20 @@ class FilesystemExt4Superblock
 		blocksUnallocatedCount,
 		inodesUnallocatedCount,
 		blockNumberOfBlockContainingSuperblock,
-		log2BlockSizeMinus10,
+		bytesPerBlock,
 		log2FragmentSizeMinus10,
 		blocksPerBlockGroup,
 		fragmentsPerBlockGroup,
 		inodesPerBlockGroup,
-		lastMountedAtSecondsSinceUnixEpoch,
-		lastWrittenAtSecondsSinceUnixEpoch,
+		lastMountedTime,
+		lastWrittenTime,
 		mountsSinceLastConsistencyCheck,
 		mountsAllowedBeforeNextConsistencyCheck,
 		ext4SignatureAsHexadecimalEF53,
 		filesystemStateCode,
 		errorHandlingMethodCode,
 		versionNubmerMinor,
-		consistencyLastCheckedAtSecondsSinceUnixEpoch,
+		consistencyLastCheckedTime,
 		secondsBetweenForcedConsistencyChecks,
 		operatingSystemId,
 		versionNumberMajor,
@@ -112,17 +335,18 @@ class FilesystemExt4Superblock
 		featureFlagsNotRequiredToReadOrWriteAsBitString,
 		featureFlagsRequiredToReadOrWriteAsBitString,
 		featureFlagsRequiredForReadOnlyAsBitString,
-		filesystemId,
+		filesystemIdAsHexadecimal,
 		volumeName,
 		pathVolumeLastMountedTo,
 		compressionAlgorithmsUsed,
 		blockCountToPreallocateForFiles,
 		blockCountToPreallocateForDirectories,
 		unused,
-		journalId,
+		journalIdAsHexadecimal,
 		journalInode,
 		journalDevice,
-		headOfOrphanInodeList
+		headOfOrphanInodeList,
+		bytesRemainingAsHexadecimal
 	)
 	{
 		this.inodeCount = inodeCount;
@@ -131,20 +355,20 @@ class FilesystemExt4Superblock
 		this.blocksUnallocatedCount = blocksUnallocatedCount;
 		this.inodesUnallocatedCount = inodesUnallocatedCount;
 		this.blockNumberOfBlockContainingSuperblock = blockNumberOfBlockContainingSuperblock;
-		this.log2BlockSizeMinus10 = log2BlockSizeMinus10;
+		this.bytesPerBlock = bytesPerBlock;
 		this.log2FragmentSizeMinus10 = log2FragmentSizeMinus10;
 		this.blocksPerBlockGroup = blocksPerBlockGroup;
 		this.fragmentsPerBlockGroup = fragmentsPerBlockGroup;
 		this.inodesPerBlockGroup = inodesPerBlockGroup;
-		this.lastMountedAtSecondsSinceUnixEpoch = lastMountedAtSecondsSinceUnixEpoch;
-		this.lastWrittenAtSecondsSinceUnixEpoch = lastWrittenAtSecondsSinceUnixEpoch;
+		this.lastMountedTime = lastMountedTime;
+		this.lastWrittenTime = lastWrittenTime;
 		this.mountsSinceLastConsistencyCheck = mountsSinceLastConsistencyCheck;
 		this.mountsAllowedBeforeNextConsistencyCheck = mountsAllowedBeforeNextConsistencyCheck;
 		this.ext4SignatureAsHexadecimalEF53 = ext4SignatureAsHexadecimalEF53;
 		this.filesystemStateCode = filesystemStateCode;
 		this.errorHandlingMethodCode = errorHandlingMethodCode;
 		this.versionNubmerMinor = versionNubmerMinor;
-		this.consistencyLastCheckedAtSecondsSinceUnixEpoch = consistencyLastCheckedAtSecondsSinceUnixEpoch;
+		this.consistencyLastCheckedTime = consistencyLastCheckedTime;
 		this.secondsBetweenForcedConsistencyChecks = secondsBetweenForcedConsistencyChecks;
 		this.operatingSystemId = operatingSystemId;
 		this.versionNumberMajor = versionNumberMajor;
@@ -156,22 +380,25 @@ class FilesystemExt4Superblock
 		this.featureFlagsNotRequiredToReadOrWriteAsBitString = featureFlagsNotRequiredToReadOrWriteAsBitString;
 		this.featureFlagsRequiredToReadOrWriteAsBitString = featureFlagsRequiredToReadOrWriteAsBitString;
 		this.featureFlagsRequiredForReadOnlyAsBitString = featureFlagsRequiredForReadOnlyAsBitString;
-		this.filesystemId = filesystemId;
+		this.filesystemIdAsHexadecimal = filesystemIdAsHexadecimal;
 		this.volumeName = volumeName;
 		this.pathVolumeLastMountedTo = pathVolumeLastMountedTo;
 		this.compressionAlgorithmsUsed = compressionAlgorithmsUsed;
 		this.blockCountToPreallocateForFiles = blockCountToPreallocateForFiles;
 		this.blockCountToPreallocateForDirectories = blockCountToPreallocateForDirectories;
 		this.unused = unused;
-		this.journalId = journalId;
+		this.journalIdAsHexadecimal = journalIdAsHexadecimal;
 		this.journalInode = journalInode;
 		this.journalDevice = journalDevice;
 		this.headOfOrphanInodeList = headOfOrphanInodeList;
+		this.bytesRemainingAsHexadecimal = bytesRemainingAsHexadecimal;
 	}
 
 	static readFromByteStream(byteStream)
 	{
 		var bs = byteStream;
+
+		var superblockOffsetInBytes = bs.byteIndexCurrent;
 
 		var inodeCount = bs.readIntegerLE(4);
 		var blockCount = bs.readIntegerLE(4);
@@ -179,7 +406,10 @@ class FilesystemExt4Superblock
 		var blocksUnallocatedCount = bs.readIntegerLE(4);
 		var inodesUnallocatedCount = bs.readIntegerLE(4);
 		var blockNumberOfBlockContainingSuperblock = bs.readIntegerLE(4);
+
 		var log2BlockSizeMinus10 = bs.readIntegerLE(4);
+		var bytesPerBlock = Math.pow(2, log2BlockSizeMinus10 + 10);
+
 		var log2FragmentSizeMinus10 = bs.readIntegerLE(4);
 		var blocksPerBlockGroup = bs.readIntegerLE(4);
 		var fragmentsPerBlockGroup = bs.readIntegerLE(4);
@@ -187,7 +417,12 @@ class FilesystemExt4Superblock
 
 		// The Unix Epoch is the start of January 1, 1970, UTC.
 		var lastMountedAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
+		var lastMountedTime =
+			new Date(lastMountedAtSecondsSinceUnixEpoch * 1000);
+
 		var lastWrittenAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
+		var lastWrittenTime =
+			new Date(lastWrittenAtSecondsSinceUnixEpoch * 1000);
 
 		// The consistency check is done by running the "fsck" command.
 		var mountsSinceLastConsistencyCheck = bs.readIntegerLE(2);
@@ -207,6 +442,9 @@ class FilesystemExt4Superblock
 		var versionNubmerMinor = bs.readIntegerLE(2);
 
 		var consistencyLastCheckedAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
+		var consistencyLastCheckedTime =
+			new Date(consistencyLastCheckedAtSecondsSinceUnixEpoch * 1000);
+
 		var secondsBetweenForcedConsistencyChecks = bs.readIntegerLE(4);
 
 		// Operating system IDs:
@@ -216,7 +454,7 @@ class FilesystemExt4Superblock
 		// 4 - BSD 4.4-Lite derivatives.
 		var operatingSystemId = bs.readIntegerLE(4);
 
-		var versionNumberMajor = bs.readIntegerLE(2);
+		var versionNumberMajor = bs.readIntegerLE(4);
 
 		var userForWhomReservedBlocksAreReservedId = bs.readIntegerLE(2);
 		var groupForWhomReservedBlocksAreReservedId = bs.readIntegerLE(2);
@@ -254,7 +492,12 @@ class FilesystemExt4Superblock
 			var featureFlagsRequiredForReadOnlyAsBitString =
 				bs.readIntegerLE(4).toString(2);
 
-			var filesystemId = bs.readString(16); // Output by "blkid".
+			var filesystemIdAsBytes = bs.readBytes(16); // Output by "blkid".
+			var filesystemIdAsHexadecimal = filesystemIdAsBytes.map
+			(
+				x => x.toString(16).padStart(2, "0")
+			).join("");
+
 			var volumeName = bs.readString(16);
 			var pathVolumeLastMountedTo = bs.readString(64);
 			var compressionAlgorithmsUsed = bs.readBytes(4);
@@ -263,13 +506,28 @@ class FilesystemExt4Superblock
 
 			var unused = bs.readIntegerLE(2);
 
-			var journalId = bs.readString(16); // Same style as filesystemId.
+			var journalIdAsBytes = bs.readBytes(16); // Same style as filesystemId.
+			var journalIdAsHexadecimal = journalIdAsBytes.map
+			(
+				x => x.toString(16).padStart(2, "0")
+			).join("");
+
 			var journalInode = bs.readIntegerLE(4);
 			var journalDevice = bs.readIntegerLE(4);
 			var headOfOrphanInodeList = bs.readIntegerLE(4);
 
 			// The rest of the superblock's 1024 bytes are unused.
 		}
+
+		var bytesReadForSuperblock =
+			bs.byteIndexCurrent - superblockOffsetInBytes;
+		var bytesRemainingCount =
+			bytesPerBlock - bytesReadForSuperblock;
+		var bytesRemaining = bs.readBytes(bytesRemainingCount);
+		var bytesRemainingAsHexadecimal = bytesRemaining.map
+		(
+			x => x.toString(16).padStart(2, "0")
+		).join(" ");
 
 		var superblock = new FilesystemExt4Superblock
 		(
@@ -279,20 +537,20 @@ class FilesystemExt4Superblock
 			blocksUnallocatedCount,
 			inodesUnallocatedCount,
 			blockNumberOfBlockContainingSuperblock,
-			log2BlockSizeMinus10,
+			bytesPerBlock,
 			log2FragmentSizeMinus10,
 			blocksPerBlockGroup,
 			fragmentsPerBlockGroup,
 			inodesPerBlockGroup,
-			lastMountedAtSecondsSinceUnixEpoch,
-			lastWrittenAtSecondsSinceUnixEpoch,
+			lastMountedTime,
+			lastWrittenTime,
 			mountsSinceLastConsistencyCheck,
 			mountsAllowedBeforeNextConsistencyCheck,
 			ext4SignatureAsHexadecimalEF53,
 			filesystemStateCode,
 			errorHandlingMethodCode,
 			versionNubmerMinor,
-			consistencyLastCheckedAtSecondsSinceUnixEpoch,
+			consistencyLastCheckedTime,
 			secondsBetweenForcedConsistencyChecks,
 			operatingSystemId,
 			versionNumberMajor,
@@ -304,17 +562,18 @@ class FilesystemExt4Superblock
 			featureFlagsNotRequiredToReadOrWriteAsBitString,
 			featureFlagsRequiredToReadOrWriteAsBitString,
 			featureFlagsRequiredForReadOnlyAsBitString,
-			filesystemId,
+			filesystemIdAsHexadecimal,
 			volumeName,
 			pathVolumeLastMountedTo,
 			compressionAlgorithmsUsed,
 			blockCountToPreallocateForFiles,
 			blockCountToPreallocateForDirectories,
 			unused,
-			journalId,
+			journalIdAsHexadecimal,
 			journalInode,
 			journalDevice,
-			headOfOrphanInodeList
+			headOfOrphanInodeList,
+			bytesRemainingAsHexadecimal
 		);
 
 		return superblock;
