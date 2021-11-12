@@ -20,11 +20,36 @@ class FilesystemExt4
 	static fromBytes(filesystemAsBytes)
 	{
 		// Based on descriptions of the Ext family of filesystems
-		// found at the links listed in the Documentation directory,
+		// found at the links listed in the repo's /Documentation directory,
 		// especially https://wiki.osdev.org/Ext2.
 
 		var bs = new ByteStream(filesystemAsBytes);
 
+		var superblock = FilesystemExt4.fromBytes_1_Superblock(bs);
+
+		var blockGroupDescriptors =
+			FilesystemExt4.fromBytes_2_BlockGroupDescriptors
+			(
+				bs, superblock
+			);
+
+		var directoryRoot = FilesystemExt4.fromBytes_3_DirectoryRoot
+		(
+			bs, superblock, blockGroupDescriptors
+		);
+
+		var returnValue = new FilesystemExt4
+		(
+			superblock,
+			blockGroupDescriptors,
+			directoryRoot
+		);
+
+		return returnValue;
+	}
+
+	static fromBytes_1_Superblock(bs)
+	{
 		var superblockOffsetInBytes = 1024;
 		var superblockSizeInBytes = 1024;
 
@@ -34,6 +59,11 @@ class FilesystemExt4
 		var superblock =
 			FilesystemExt4Superblock.readFromByteStream(bs);
 
+		return superblock;
+	}
+
+	static fromBytes_2_BlockGroupDescriptors(bs, superblock)
+	{
 		var blockGroupDescriptors = [];
 
 		var blockCount = superblock.blockCount;
@@ -48,16 +78,44 @@ class FilesystemExt4
 			blockGroupDescriptors.push(blockGroupDescriptor);
 		}
 
+		return blockGroupDescriptors;
+	}
+
+	static fromBytes_3_DirectoryRoot
+	(
+		bs, superblock, blockGroupDescriptors
+	)
+	{
+		// todo - This doesn't work.
+
+		var idOfInodeForDirectoryRoot = 2;
+		var inodesPerBlockGroup = superblock.inodesPerBlockGroup;
+		var blockGroupIndex = Math.floor
+		(
+			(idOfInodeForDirectoryRoot - 1) / inodesPerBlockGroup
+		);
+		var blockGroupDescriptor =
+			blockGroupDescriptors[blockGroupIndex];
+		var inodeTableStartingAddress =
+			blockGroupDescriptor.startingBlockAddressOfInodeTable;
+		var inodeIndex =
+			(idOfInodeForDirectoryRoot - 1) % inodesPerBlockGroup;
+		var bytesPerInode = superblock.bytesPerInode;
+		var bytesPerBlock = superblock.bytesPerBlock;
+		var blockIndex = Math.floor
+		(
+			(inodeIndex * bytesPerInode) / bytesPerBlock
+		);
+		var blockAddressInBytes =
+			(blockGroupIndex * blocksPerBlockGroup + blockIndex)
+			* bytesPerBlock; // ?
+		bs.seekToByteAtIndex(blockAddressInBytes);
+		var inodeForDirectoryRoot =
+			FilesystemExt4Inode.readFromByteStream(bs);
+
 		var directoryRoot = null; // todo
 
-		var returnValue = new FilesystemExt4
-		(
-			superblock,
-			blockGroupDescriptors,
-			directoryRoot
-		);
-
-		return returnValue;	
+		return directoryRoot;
 	}
 
 	// instance methods
@@ -211,7 +269,12 @@ class FilesystemExt4Inode
 		this.fileAccessControlList = fileAccessControlList;
 		this.directoryAccessControlList = directoryAccessControlList;
 		this.blockAddressOfFragment = blockAddressOfFragment;
-		this.operatingSystemSpecificValue2 = operatingSystemSpecificValue2;
+		this.fragmentNumber = fragmentNumber;
+		this.fragmentSize = fragmentSize;
+		this.reserved1 = reserved1;
+		this.high16BitsOfUserId = high16BitsOfUserId;
+		this.high16BitsOfGroupId = high16BitsOfGroupId;
+		this.reserved2 = reserved2;
 	}
 
 	static readFromByteStream(byteStream)
@@ -236,6 +299,7 @@ class FilesystemExt4Inode
 
 		var userId = bs.readIntegerLE(2);
 		var sizeInBytesLower32Bits = bs.readIntegerLE(4);
+		var sizeInBytes = sizeInBytesLower32Bits; // hack
 
 		var lastAccessedAtSecondsSinceUnixEpoch = bs.readIntegerLE(4);
 		var lastAccessedAtTime =
@@ -297,6 +361,39 @@ class FilesystemExt4Inode
 		var high16BitsOfUserId = bs.readIntegerLE(2);
 		var high16BitsOfGroupId = bs.readIntegerLE(2);
 		var reserved2 = bs.readByte();
+
+		var returnInode = new FilesystemExt4Inode
+		(
+			typeCode,
+			permissionsAsBitString,
+			userId,
+			sizeInBytes,
+			lastAccessedAtTime,
+			createdAtTime,
+			lastModifiedAtTime,
+			deletedAtTime,
+			groupId,
+			directoryEntryCount,
+			diskSectorsUsedForPayloadCount,
+			flags,
+			operatingSystemSpecificValue1,
+			directBlockPointers,
+			singlyIndirectBlockPointer,
+			doublyIndirectBlockPointer,
+			triplyIndirectBlockPointer,
+			generationNumber,
+			fileAccessControlList,
+			directoryAccessControlList,
+			blockAddressOfFragment,
+			fragmentNumber,
+			fragmentSize,
+			reserved1,
+			high16BitsOfUserId,
+			high16BitsOfGroupId,
+			reserved2
+		);
+
+		return returnInode;
 	}
 }
 

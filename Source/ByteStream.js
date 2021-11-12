@@ -65,4 +65,9 @@ class ByteStream
 
 		return returnValue;
 	}
+
+	seekToByteAtIndex(byteIndexToSeekTo)
+	{
+		this.byteIndexCurrent = byteIndexToSeekTo;
+	}
 }
