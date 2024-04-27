@@ -106,6 +106,7 @@ class FilesystemExt4
 		(
 			(inodeIndex * bytesPerInode) / bytesPerBlock
 		);
+		var blocksPerBlockGroup = superblock.blocksPerBlockGroup;
 		var blockAddressInBytes =
 			(blockGroupIndex * blocksPerBlockGroup + blockIndex)
 			* bytesPerBlock; // ?
